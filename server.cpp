@@ -1,12 +1,16 @@
 #include "server.h"
 
+vector<bool> server::sock_arr(100000, false);
+
 server::server(int port, string ip): server_port(port), server_ip(ip) {
 }
 
 server::~server() {
 	// 关闭打开的连接
-	for(auto conn: sock_arr){
-		close(conn);
+	for(int i=0; i<sock_arr.size(); ++i){
+		if(sock_arr[i]){
+			close(i);
+		}
 	}
 	close(server_sockfd);
 }
@@ -44,7 +48,7 @@ void server::run() {
 			exit(1);
 		}
 		cout << "文件描述符为: " << conn << " 的客户连接成功" << endl;
-		sock_arr.push_back(conn);
+		sock_arr[conn] = true;
 		// 创建交互线程
 		thread t(server::RecvMsg, conn);
 		t.detach(); // 不用 join join会阻塞主线程
@@ -57,7 +61,19 @@ void server::RecvMsg(int conn) {
 	while(1){
 		memset(buffer, 0, sizeof(buffer));
 		int len = recv(conn, buffer, sizeof(buffer), 0);
-		if(strcmp(buffer, "exit") == 0 || len<=0) break;
+		if(strcmp(buffer, "exit") == 0 || len<=0) {
+			close(conn);
+			sock_arr[conn] = false;
+			break;
+		}
 		cout << "收到套接字: " << conn << " 信息: " << buffer << endl;
+		// 回复
+		string ans = "收到";
+		int ret = send(conn, ans.c_str(), ans.length(), 0);
+		if(ret<=0){
+			close(conn);
+			sock_arr[conn] = false;
+			break;
+		}
 	}
 }
