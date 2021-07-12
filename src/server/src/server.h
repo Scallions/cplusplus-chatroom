@@ -8,6 +8,7 @@ public:
 	~server();
 	void run();
 	static void RecvMsg(int conn);
+	static void HandleRequest(int conn, string str); // 和连接交互
 
 private:
 	int server_port; // 服务器端口后
