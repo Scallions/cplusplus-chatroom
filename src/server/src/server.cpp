@@ -83,6 +83,8 @@ void server::RecvMsg(int conn) {
 void server::HandleRequest(int conn, string str) {
 	char buffer[1000];
 	string name, pass;
+	bool login_flag = false;
+	string login_name;
 
 	MYSQL *con = mysql_init(NULL);
 	if(con == NULL) {
@@ -111,6 +113,38 @@ void server::HandleRequest(int conn, string str) {
 			cout << "Query failed: " << mysql_error(con) << endl;
 		} else {
 			cout << "Query success" << endl;
+		}
+	}else if(str.find("login") != str.npos) {
+		int p1 = str.find("login"), p2 = str.find("pass:");
+		name = str.substr(p1+5, p2-5);
+		pass = str.substr(p2+5, str.length()-p2-4);
+		string search = "SELECT * FROM USER WHERE NAME=\"";
+		search += name;
+		search += "\";";
+		cout <<"sql语句: " << search << endl << endl;
+		auto search_res = mysql_query(con, search.c_str());
+		auto result = mysql_store_result(con);
+		int col = mysql_num_fields(result);
+		int row = mysql_num_rows(result);
+		if(search_res == 0 && row!=0){
+			cout << "查询成功" << endl;
+			auto info = mysql_fetch_row(result);
+			cout << "查询到用户名: " << info[0] << "密码: " << info[1] << endl;
+			if(info[1] == pass) {
+				cout << "登录密码正确" << endl << endl;
+				string str1 = "ok";
+				login_flag = true;
+				login_name = name;
+				send(conn, str1.c_str(), str1.length()+1, 0);
+			}else{
+				cout << "登录密码错误" << endl << endl;
+				char str1[100] = "wrong";
+				send(conn, str1, strlen(str1), 0);
+			}
+		}else{
+			cout << "查询失败" << endl << endl;
+			char str1[100] = "wrong";
+			send(conn, str1, strlen(str1), 0);
 		}
 	}
 
