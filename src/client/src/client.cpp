@@ -37,6 +37,8 @@ void client::run() {
 void client::HandleClient(int conn) {
 	int choice; 
 	string name, pass, pass1;
+	bool login_flag = false; // 是否登录成功
+	string login_name; // 记录用户名
 
 	// 打印信息
     cout<<" ------------------\n";
@@ -48,8 +50,11 @@ void client::HandleClient(int conn) {
     cout<<"|                  |\n";
     cout<<" ------------------ \n\n";
 
-	// 处理事务
+	// 处理登录相关
 	while(1) {
+		if(login_flag) {
+			break;
+		}
 		cin >> choice;
 		if(choice == 0) {
 			break;
@@ -81,7 +86,45 @@ void client::HandleClient(int conn) {
 			send(conn, str.c_str(), str.length(), 0);
 			cout << "注册成功" << endl;
 			cout << "\n继续输入你要的选项:";
+		}else if(choice ==1 &&!login_flag) {
+			while(1) {
+				cout << "用户名:";
+				cin >> name;
+				cout << "密码:";
+				cin >> pass;
+				string str = "login" + name;
+				str += "pass:";
+				str += pass;
+				send(sock, str.c_str(), str.length(), 0);
+				char buffer[1000];
+				memset(buffer, 0, sizeof(buffer));
+				recv(sock, buffer, sizeof(buffer), 0);
+				string recv_str(buffer);
+				// 判断是否登录成功
+				if(recv_str.substr(0,2) == "ok") {
+					login_flag = true;
+					login_name = name;
+					cout << "登录成功\n" << endl;
+					break;
+				}else{
+					cout << "用户名或者密码错误!\n" << endl;
+				}
+			}
 		}
+	}
+
+	// 登录成功
+	if(login_flag){
+		system("clear"); // 清空终端
+        cout<<"        欢迎回来,"<<login_name<<endl;
+        cout<<" -------------------------------------------\n";
+        cout<<"|                                           |\n";
+        cout<<"|          请选择你要的选项：               |\n";
+        cout<<"|              0:退出                       |\n";
+        cout<<"|              1:发起单独聊天               |\n";
+        cout<<"|              2:发起群聊                   |\n";
+        cout<<"|                                           |\n";
+        cout<<" ------------------------------------------- \n\n";
 	}
 }
 

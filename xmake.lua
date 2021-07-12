@@ -2,7 +2,8 @@ add_rules("mode.debug", "mode.release")
 -- set_toolchains("gcc")
 add_requires("mysql")
 add_packages("mysql")
-add_includedirs("include")
+add_includedirs("include") 
+set_installdir(".")
 
 includes("src/client", "src/server")
 
