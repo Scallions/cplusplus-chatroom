@@ -4,7 +4,7 @@ add_requires("mysql")
 add_packages("mysql")
 add_includedirs("include")
 
-includes("client", "server")
+includes("src/client", "src/server")
 
 
 --
