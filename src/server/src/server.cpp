@@ -3,6 +3,8 @@
 vector<bool> server::sock_arr(100000, false);
 unordered_map<string, int> server::name_sock_map;
 mutex server::name_sock_mutex;
+unordered_map<int, set<int>> server::group_map;
+mutex server::group_mutex;
 MYSQL *server::con = NULL;
 
 server::server(int port, string ip): server_port(port), server_ip(ip) {
@@ -74,7 +76,7 @@ void server::run() {
 // 子线程函数 不用添加 static
 void server::RecvMsg(int conn) {
 	// info 维持此次连接信息
-	tuple<bool, string, string, int> info; // login_flag, login_name, target_name, target_conn;
+	tuple<bool, string, string, int, int> info; // login_flag, login_name, target_name, target_conn, group
 	get<0>(info) = false;
 	get<3>(info) = -1;
 
@@ -93,13 +95,14 @@ void server::RecvMsg(int conn) {
 	}
 }
 
-void server::HandleRequest(int conn, string str, tuple<bool, string, string, int> &info) {
+void server::HandleRequest(int conn, string str, tuple<bool, string, string, int, int> &info) {
 	char buffer[1000];
 	string name, pass;
 	bool login_flag = get<0>(info);
 	string login_name = get<1>(info);
 	string target_name = get<2>(info);
 	int target_conn = get<3>(info);
+	int group_num = get<4>(info);
 
 	if(str.find("name:") != str.npos) {
 		// 处理注册 
@@ -187,6 +190,27 @@ void server::HandleRequest(int conn, string str, tuple<bool, string, string, int
 		cout<<"用户"<<login_name<<"向"<<target_name<<"发送:"<<sendstr<<endl;
         sendstr="["+login_name+"]:"+sendstr;
         send(target_conn,sendstr.c_str(),sendstr.length(),0);
+	} else if(str.find("group:") != str.npos) {
+		// 加入群聊
+		string recvstr(str);
+		string numstr = recvstr.substr(6);
+		group_num = stoi(numstr);
+		cout << "用户" << login_name << "加入群聊: " << numstr << endl;
+		{
+			lock_guard<mutex> lck(group_mutex);
+			group_map[group_num].insert(conn);
+		}
+	} else if(str.find("gr_message:") != str.npos){
+		// 发送群聊
+		string sendstr(str);
+		sendstr = sendstr.substr(11);
+		sendstr = "[" + login_name + "]:" + sendstr;
+		cout << "群聊信息: " << sendstr << endl;
+		for(auto i: group_map[group_num]){
+			if(i!=conn){
+				send(i, sendstr.c_str(), sendstr.length(), 0);
+			}
+		}
 	}
 	
 	// 更新 conn
@@ -194,5 +218,6 @@ void server::HandleRequest(int conn, string str, tuple<bool, string, string, int
 	get<1>(info) = login_name;
 	get<2>(info) = target_name;
 	get<3>(info) = target_conn;
+	get<4>(info) = group_num;
 
 }

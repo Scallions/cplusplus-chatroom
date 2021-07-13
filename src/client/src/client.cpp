@@ -146,6 +146,16 @@ void client::HandleClient(int conn) {
 			t2.join();
 		}else{
 			// 群聊
+			cout << "请输入群号: ";
+			int num;
+			cin >> num;
+			string sendstr("group:" + to_string(num));
+			send(sock, sendstr.c_str(), sendstr.length(), 0);
+			cout << "请输入发送内容（输入exit退出）：\n";
+			thread t1(client::SendMsg, -conn); // 发送线程 -conn 表示群聊
+			thread t2(client::RecvMsg, conn); // 接收线程
+			t1.join();
+			t2.join();
 		}
 	}
 }
@@ -155,9 +165,14 @@ void client::SendMsg(int conn) {
 	while(1){
 		string str;
 		cin >> str;
-		str = "content:" + str;
-		int ret = send(conn, str.c_str(), str.length(), 0);
-		if(str == "content:exit" || ret <=0){
+		if(conn>0){
+			str = "content:" + str;
+		} else if(conn <0){
+			str = "gr_message:" + str;
+		}
+		int ret = send(abs(conn), str.c_str(), str.length(), 0);
+		if(str.find("exit") != str.npos || ret <=0){ // 输入中包含EXIT
+		// TODO: 对exit做出更好判断
 			break;
 		}
 	}
