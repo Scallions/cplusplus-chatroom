@@ -1,6 +1,8 @@
 #include "server.h"
 
 vector<bool> server::sock_arr(100000, false);
+unordered_map<string, int> server::name_sock_map;
+mutex server::name_sock_mutex;
 
 server::server(int port, string ip): server_port(port), server_ip(ip) {
 }
@@ -57,6 +59,11 @@ void server::run() {
 
 // 子线程函数 不用添加 static
 void server::RecvMsg(int conn) {
+	// info 维持此次连接信息
+	tuple<bool, string, string, int> info; // login_flag, login_name, target_name, target_conn;
+	get<0>(info) = false;
+	get<3>(info) = -1;
+
 	char buffer[1000]; // 接受缓冲
 	while(1){
 		memset(buffer, 0, sizeof(buffer)); // 重置0 bzero一样
@@ -68,24 +75,19 @@ void server::RecvMsg(int conn) {
 		}
 		cout << "收到套接字: " << conn << " 信息: " << buffer << endl;
 		string str(buffer);
-		HandleRequest(conn, str);
-		// // 回复
-		// string ans = "收到";
-		// int ret = send(conn, ans.c_str(), ans.length(), 0);
-		// if(ret<=0){
-		// 	close(conn);
-		// 	sock_arr[conn] = false;
-		// 	break;
-		// }
+		HandleRequest(conn, str, info);
 	}
 }
 
-void server::HandleRequest(int conn, string str) {
+void server::HandleRequest(int conn, string str, tuple<bool, string, string, int> &info) {
 	char buffer[1000];
 	string name, pass;
-	bool login_flag = false;
-	string login_name;
+	bool login_flag = get<0>(info);
+	string login_name = get<1>(info);
+	string target_name = get<2>(info);
+	int target_conn = get<3>(info);
 
+	// TODO: 数据库应该只用于登录和注册
 	MYSQL *con = mysql_init(NULL);
 	if(con == NULL) {
 		cout << "Error init mysql: " << mysql_error(con) << endl;
@@ -135,6 +137,10 @@ void server::HandleRequest(int conn, string str) {
 				string str1 = "ok";
 				login_flag = true;
 				login_name = name;
+				{
+					lock_guard<mutex> lck(name_sock_mutex);
+					name_sock_map[login_name] = conn;
+				}
 				send(conn, str1.c_str(), str1.length()+1, 0);
 			}else{
 				cout << "登录密码错误" << endl << endl;
@@ -146,7 +152,46 @@ void server::HandleRequest(int conn, string str) {
 			char str1[100] = "wrong";
 			send(conn, str1, strlen(str1), 0);
 		}
+	}else if (str.find("target:") != str.npos){
+		// 新建私聊
+		int pos1 = str.find("from");
+		string target = str.substr(7, pos1-7), from = str.substr(pos1+4);
+		target_name = target;
+		if(name_sock_map.find(target_name) == name_sock_map.end()){
+			// 没找到
+			cout<<"源用户为"<<login_name<<",目标用户"<<target_name<<"仍未登录，无法发起私聊\n";
+			string sendstr = "源用户为" + login_name + ",目标用户" + target_name + "仍未登录，无法发起私聊";
+			send(conn, sendstr.c_str(), sendstr.length(), 0);
+		}else {
+			// 找到目标
+			cout<<"源用户"<<login_name<<"向目标用户"<<target_name<<"发起的私聊即将建立";
+            cout<<",目标用户的套接字描述符为"<<name_sock_map[target]<<endl;
+			target_conn = name_sock_map[target_name];
+		}
+	}else if (str.find("content:") != str.npos) {
+		// 私聊信息
+		if(target_conn == -1){
+			cout<<"找不到目标用户"<<target_name<<"的套接字，将尝试重新寻找目标用户的套接字\n";
+			if(name_sock_map.find(target_name)!=name_sock_map.end()){
+                target_conn=name_sock_map[target_name];
+                cout<<"重新查找目标用户套接字成功\n";
+            }
+            else{
+                cout<<"查找仍然失败，转发失败！\n";
+            }
+		}
+		string recvstr(str);
+		string sendstr = recvstr.substr(8);
+		cout<<"用户"<<login_name<<"向"<<target_name<<"发送:"<<sendstr<<endl;
+        sendstr="["+login_name+"]:"+sendstr;
+        send(target_conn,sendstr.c_str(),sendstr.length(),0);
 	}
+	
+	// 更新 conn
+	get<0>(info) = login_flag;
+	get<1>(info) = login_name;
+	get<2>(info) = target_name;
+	get<3>(info) = target_conn;
 
 	mysql_close(con);
 }
