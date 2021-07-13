@@ -24,6 +24,9 @@ private:
 	static unordered_map<string, int> name_sock_map;
 	static mutex name_sock_mutex;
 
+	// db
+	static MYSQL* con;
+
 };
 
 #endif
