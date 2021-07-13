@@ -114,28 +114,50 @@ void client::HandleClient(int conn) {
 	}
 
 	// 登录成功
-	if(login_flag){
-		system("clear"); // 清空终端
-        cout<<"        欢迎回来,"<<login_name<<endl;
-        cout<<" -------------------------------------------\n";
-        cout<<"|                                           |\n";
-        cout<<"|          请选择你要的选项：               |\n";
-        cout<<"|              0:退出                       |\n";
-        cout<<"|              1:发起单独聊天               |\n";
-        cout<<"|              2:发起群聊                   |\n";
-        cout<<"|                                           |\n";
-        cout<<" ------------------------------------------- \n\n";
+	while(login_flag && 1) {
+		if(login_flag){
+			system("clear"); // 清空终端
+			cout<<"        欢迎回来,"<<login_name<<endl;
+			cout<<" -------------------------------------------\n";
+			cout<<"|                                           |\n";
+			cout<<"|          请选择你要的选项：               |\n";
+			cout<<"|              0:退出                       |\n";
+			cout<<"|              1:发起单独聊天               |\n";
+			cout<<"|              2:发起群聊                   |\n";
+			cout<<"|                                           |\n";
+			cout<<" ------------------------------------------- \n\n";
+		}
+		cin >> choice;
+		// 业务判断
+		if(choice == 0){
+			break;
+		}
+		if(choice == 1){
+			// 私聊
+			cout << "请输入对方用户名: ";
+			string target_name, content;
+			cin >> target_name;
+			string sendstr("target:" + target_name + "from:" + login_name);
+			send(sock, sendstr.c_str(), sendstr.length(), 0);
+			cout << "请输入要发送的内容（输入exit退出）：\n";
+			thread t1(client::SendMsg, conn); // 发送线程
+			thread t2(client::RecvMsg, conn); // 接收线程
+			t1.join();
+			t2.join();
+		}else{
+			// 群聊
+		}
 	}
 }
 
 // 发送线程
 void client::SendMsg(int conn) {
-	char sendbuff[100];
 	while(1){
-		memset(sendbuff, 0, sizeof(sendbuff));
-		cin >> sendbuff;
-		int ret = send(conn, sendbuff, strlen(sendbuff), 0);
-		if(strcmp(sendbuff, "exit") == 0 || ret <=0){
+		string str;
+		cin >> str;
+		str = "content:" + str;
+		int ret = send(conn, str.c_str(), str.length(), 0);
+		if(str == "content:exit" || ret <=0){
 			break;
 		}
 	}
@@ -150,6 +172,6 @@ void client::RecvMsg(int conn) {
 		if(len<=0){
 			break;
 		}
-		cout << "接收服务器信息: " <<  buffer << endl;
+		cout <<  buffer << endl;
 	}
 }
