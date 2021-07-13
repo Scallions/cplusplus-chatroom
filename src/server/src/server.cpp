@@ -3,6 +3,7 @@
 vector<bool> server::sock_arr(100000, false);
 unordered_map<string, int> server::name_sock_map;
 mutex server::name_sock_mutex;
+MYSQL *server::con = NULL;
 
 server::server(int port, string ip): server_port(port), server_ip(ip) {
 }
@@ -15,6 +16,7 @@ server::~server() {
 		}
 	}
 	close(server_sockfd);
+	mysql_close(con);
 }
 
 void server::run() {
@@ -37,6 +39,18 @@ void server::run() {
 	if(listen(server_sockfd,20) == -1){
 		perror("listen");
 		exit(1);
+	}
+
+	// init db
+	con = mysql_init(NULL);
+	if(con == NULL) {
+		cout << "Error init mysql: " << mysql_error(con) << endl;
+	}
+	if(!(mysql_real_connect(con, "10.133.1.91", "root", "gongli", "ChatProject", 0, NULL, CLIENT_MULTI_STATEMENTS))){
+		cout << "Error connecting to database: " << mysql_error(con) << endl;
+		return;
+	}else{
+		cout << "Connect db success" << endl;
 	}
 
 	// client_addr
@@ -86,18 +100,6 @@ void server::HandleRequest(int conn, string str, tuple<bool, string, string, int
 	string login_name = get<1>(info);
 	string target_name = get<2>(info);
 	int target_conn = get<3>(info);
-
-	// TODO: 数据库应该只用于登录和注册
-	MYSQL *con = mysql_init(NULL);
-	if(con == NULL) {
-		cout << "Error init mysql: " << mysql_error(con) << endl;
-	}
-	if(!(mysql_real_connect(con, "10.133.1.91", "root", "gongli", "ChatProject", 0, NULL, CLIENT_MULTI_STATEMENTS))){
-		cout << "Error connecting to database: " << mysql_error(con) << endl;
-		return;
-	}else{
-		cout << "Connect db success" << endl;
-	}
 
 	if(str.find("name:") != str.npos) {
 		// 处理注册 
@@ -193,5 +195,4 @@ void server::HandleRequest(int conn, string str, tuple<bool, string, string, int
 	get<2>(info) = target_name;
 	get<3>(info) = target_conn;
 
-	mysql_close(con);
 }
