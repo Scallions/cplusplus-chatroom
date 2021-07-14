@@ -1,12 +1,18 @@
 #include "server.h"
+#include <boost/asio.hpp>
+#include <boost/asio/thread_pool.hpp>
 
 vector<bool> server::sock_arr(100000, false);
 unordered_map<string, int> server::name_sock_map;
 mutex server::name_sock_mutex;
 unordered_map<int, set<int>> server::group_map;
 mutex server::group_mutex;
+unordered_map<int, tuple<bool, string, string, int, int>> server::conn_map;
+mutex server::conn_mutex;
+
 MYSQL *server::con = NULL;
 redisContext *server::redis_target = NULL;
+int server::kq = -1;
 
 server::server(int port, string ip): server_port(port), server_ip(ip) {
 }
@@ -38,6 +44,18 @@ void server::run() {
 		perror("bind");
 		exit(1);
 	}
+
+	// kqueue
+	kq = kqueue();
+	if(kq<0) {
+		perror("kqueue error");
+		exit(1);
+	}
+
+	struct kevent ev;
+	struct kevent evs[100];
+	EV_SET(&ev, server_sockfd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,  NULL);
+	kevent(kq, &ev, 1, NULL, 0, NULL);
 
 	// listen
 	if(listen(server_sockfd,20) == -1){
@@ -78,51 +96,79 @@ void server::run() {
 	sockaddr_in client_addr;
 	socklen_t len = sizeof(client_addr);
 	
+	boost::asio::thread_pool tp(10);
+
 	while(1) {
-		int conn = accept(server_sockfd, (sockaddr*)&client_addr, &len);
-		if(conn<0){
-			perror("accept");
-			exit(1);
+		// kqueue
+		cout << "------------------------" << endl;
+		cout << "kqueue wait" << endl;
+
+		int nev = kevent(kq, NULL, 0, evs, 100, NULL);
+		for(int i=0; i<nev; ++i){
+			struct kevent evt = evs[i]; // 取出就绪事件
+			int fd = evt.ident;
+			if(fd == server_sockfd) {
+				int conn = accept(server_sockfd, (sockaddr*)&client_addr, &len); 
+				if(conn < 0){
+					perror("accept");
+					exit(1);
+				}else{
+					cout << "文件描述符为: " << conn << " 的客户连接成功" << endl;
+				}
+				struct kevent tev;
+				EV_SET(&tev, conn, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, NULL);
+				kevent(kq, &tev, 1, NULL, 0, NULL);
+			}else{
+				cout << "接收到读取事件: " << fd << endl;
+				boost::asio::post(tp, bind(RecvMsg, fd));
+			}
 		}
-		cout << "文件描述符为: " << conn << " 的客户连接成功" << endl;
-		sock_arr[conn] = true;
-		// 创建交互线程
-		thread t(server::RecvMsg, conn);
-		t.detach(); // 不用 join join会阻塞主线程
 	}
 }
 
 // 子线程函数 不用添加 static
 void server::RecvMsg(int conn) {
-	// info 维持此次连接信息
-	tuple<bool, string, string, int, int> info; // login_flag, login_name, target_name, target_conn, group
-	get<0>(info) = false;
-	get<3>(info) = -1;
-
 	char buffer[1000]; // 接受缓冲
-	while(1){
-		memset(buffer, 0, sizeof(buffer)); // 重置0 bzero一样
-		int len = recv(conn, buffer, sizeof(buffer), 0);
-		if(strcmp(buffer, "exit") == 0 || len<=0) {
-			close(conn);
-			sock_arr[conn] = false;
-			break;
-		}
-		cout << "收到套接字: " << conn << " 信息: " << buffer << endl;
-		string str(buffer);
-		HandleRequest(conn, str, info);
-	}
+	memset(buffer, 0, sizeof(buffer)); // 重置0 bzero一样
+	int len = recv(conn, buffer, sizeof(buffer), 0);
+	cout << "收到套接字: " << conn << " 信息: " << buffer << endl;
+	string str(buffer);
+	HandleRequest(conn, str);
 }
 
-void server::HandleRequest(int conn, string str, tuple<bool, string, string, int, int> &info) {
+void server::HandleRequest(int conn, string str) {
 	char buffer[1000];
 	string name, pass;
+	// info 维持此次连接信息
+	// login_flag, login_name, target_name, target_conn, group
+	tuple<bool, string, string, int, int> info;
+	{
+		lock_guard<mutex> lck(conn_mutex);
+		info = conn_map[conn];
+	}
 	bool login_flag = get<0>(info);
 	string login_name = get<1>(info);
 	string target_name = get<2>(info);
 	int target_conn = get<3>(info);
 	int group_num = get<4>(info);
 
+	// 判断是否关闭
+	if(str.find("exit:") != str.npos){
+		{
+			unique_lock<mutex> lck1(conn_mutex, defer_lock);
+			unique_lock<mutex> lck2(name_sock_mutex, defer_lock);
+			lock(lck1, lck2);
+			sock_arr[conn] = false;
+			conn_map.erase(conn);
+			name_sock_map.erase(login_name);
+		}
+		struct kevent tev;
+		EV_SET(&tev, conn, EVFILT_READ, EV_DELETE | EV_DISABLE, 0, 0, NULL);
+		kevent(kq, &tev, 1, NULL, 0, NULL);
+		cout << "kq disable: " << conn << endl;
+		close(conn);
+		cout << "close: " << conn << endl;
+	}
 	// TODO: 处理逻辑提出去
 	if(str.find("name:") != str.npos) {
 		// 处理注册 
@@ -274,5 +320,22 @@ void server::HandleRequest(int conn, string str, tuple<bool, string, string, int
 	get<2>(info) = target_name;
 	get<3>(info) = target_conn;
 	get<4>(info) = group_num;
+	{
+		lock_guard<mutex> lck(conn_mutex);
+		conn_map[conn] = info;
+	}
+}
 
+void server::setnonblocking(int sock) {
+	int opts;
+	opts = fcntl(sock, F_GETFL);
+	if(opts < 0){
+		perror("fcntl(sock,GETFL)");
+		exit(1);
+	}
+	opts = opts | O_NONBLOCK;
+	if(fcntl(sock, F_SETFL, opts) < 0){
+		perror("fcntl(sock, SETFL, opts)");
+		exit(1);
+	}
 }
