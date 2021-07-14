@@ -21,3 +21,5 @@ https://www.lanqiao.cn/courses/3573
 - 私聊
 - 群聊
 - session
+- kqueue
+- boost thread pool
