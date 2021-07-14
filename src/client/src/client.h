@@ -17,6 +17,7 @@ private:
 	int server_port;
 	string server_ip;
 	int sock; // conn fd
+	static bool recv_flag;
 };
 
 
