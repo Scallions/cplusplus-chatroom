@@ -6,6 +6,8 @@
 #include <mutex>
 #include <tuple>
 #include <set>
+#include <mysql.h>
+#include <hiredis/hiredis.h>
 
 class server{
 public:
@@ -31,6 +33,9 @@ private:
 
 	// db
 	static MYSQL* con;
+
+	// redis
+	static redisContext *redis_target;
 
 };
 

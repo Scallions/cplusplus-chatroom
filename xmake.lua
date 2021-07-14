@@ -1,7 +1,7 @@
 add_rules("mode.debug", "mode.release")
 -- set_toolchains("gcc")
-add_requires("mysql")
-add_packages("mysql")
+add_requires("mysql", "vcpkg::hiredis")
+add_packages("mysql", "vcpkg::hiredis")
 add_includedirs("include") 
 set_installdir(".")
 

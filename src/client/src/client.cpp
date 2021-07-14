@@ -1,5 +1,5 @@
 #include "client.h"
-
+#include <fstream>
 
 client::client(int port, string ip): server_port(port), server_ip(ip) {
 }
@@ -40,15 +40,38 @@ void client::HandleClient(int conn) {
 	bool login_flag = false; // 是否登录成功
 	string login_name; // 记录用户名
 
+	// 检查本地cookie
+	ifstream f("cookie.txt");
+	string cookie_str;
+	if(f.good()){
+		f>>cookie_str;
+		f.close();
+
+		cookie_str = "cookie:" + cookie_str;
+		send(sock, cookie_str.c_str(), cookie_str.length()+1,0);
+		
+		char cookie_ans[100];
+		memset(cookie_ans, 0, sizeof(cookie_ans));
+		recv(sock, cookie_ans, sizeof(cookie_ans), 0);
+
+		string ans_str(cookie_ans);
+		if(ans_str != "NULL") {
+			login_flag = true;
+			login_name = ans_str;
+		}
+	}
+
 	// 打印信息
-    cout<<" ------------------\n";
-    cout<<"|                  |\n";
-    cout<<"| 请输入你要的选项:|\n";
-    cout<<"|    0:退出        |\n";
-    cout<<"|    1:登录        |\n";
-    cout<<"|    2:注册        |\n";
-    cout<<"|                  |\n";
-    cout<<" ------------------ \n\n";
+	if(!login_flag) {
+		cout<<" ------------------\n";
+		cout<<"|                  |\n";
+		cout<<"| 请输入你要的选项:|\n";
+		cout<<"|    0:退出        |\n";
+		cout<<"|    1:登录        |\n";
+		cout<<"|    2:注册        |\n";
+		cout<<"|                  |\n";
+		cout<<" ------------------ \n\n";
+	}
 
 	// 处理登录相关
 	while(1) {
@@ -104,6 +127,9 @@ void client::HandleClient(int conn) {
 				if(recv_str.substr(0,2) == "ok") {
 					login_flag = true;
 					login_name = name;
+					string tmpstr = recv_str.substr(2);
+					tmpstr = "cat > cookie.txt <<end \n" + tmpstr +"\nend";
+					system(tmpstr.c_str());
 					cout << "登录成功\n" << endl;
 					break;
 				}else{
