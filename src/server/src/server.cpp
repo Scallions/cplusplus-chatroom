@@ -6,6 +6,7 @@ mutex server::name_sock_mutex;
 unordered_map<int, set<int>> server::group_map;
 mutex server::group_mutex;
 MYSQL *server::con = NULL;
+redisContext *server::redis_target = NULL;
 
 server::server(int port, string ip): server_port(port), server_ip(ip) {
 }
@@ -19,6 +20,7 @@ server::~server() {
 	}
 	close(server_sockfd);
 	mysql_close(con);
+	redisFree(redis_target);
 }
 
 void server::run() {
@@ -53,6 +55,19 @@ void server::run() {
 		return;
 	}else{
 		cout << "Connect db success" << endl;
+	}
+
+	// init redis
+	redis_target = redisConnect("10.133.1.91", 6379);
+	if(redis_target->err){
+		redisFree(redis_target);
+		cout << "连接redis失败" << endl;
+	}
+	// auth
+	redisReply *r = (redisReply *)redisCommand(redis_target, "AUTH %s", "gongli");
+	if(r->str != "OK"){
+		redisFree(redis_target);
+		cout << "验证redis失败" << endl;
 	}
 
 	// client_addr
@@ -104,6 +119,7 @@ void server::HandleRequest(int conn, string str, tuple<bool, string, string, int
 	int target_conn = get<3>(info);
 	int group_num = get<4>(info);
 
+	// TODO: 处理逻辑提出去
 	if(str.find("name:") != str.npos) {
 		// 处理注册 
 		// TODO: 防止sql注入
@@ -146,6 +162,27 @@ void server::HandleRequest(int conn, string str, tuple<bool, string, string, int
 					lock_guard<mutex> lck(name_sock_mutex);
 					name_sock_map[login_name] = conn;
 				}
+
+				// 设置session
+				srand(time(NULL));
+				for(int i=0; i<10; ++i) {
+					int type = rand()%3;
+					if(type==0){
+						str1+='0'+rand()%9;
+					}else if(type==1){
+						str1+='a'+rand()%26;
+					}else if(type==2){
+						str1+='A'+rand()%26;
+					}
+				}
+				// 存入redis
+				string redisstr = "hset " + str1.substr(2) + " name " + login_name;
+				redisReply *r = (redisReply *)redisCommand(redis_target, redisstr.c_str());
+				// 设置过期时间
+				redisstr = "expire " + str1.substr(2) + " 300";
+				r = (redisReply *)redisCommand(redis_target, redisstr.c_str());
+				cout << "用户: " << login_name << " 的sessionid为: " << str1.substr(2) << endl;
+
 				send(conn, str1.c_str(), str1.length()+1, 0);
 			}else{
 				cout << "登录密码错误" << endl << endl;
@@ -211,6 +248,20 @@ void server::HandleRequest(int conn, string str, tuple<bool, string, string, int
 				send(i, sendstr.c_str(), sendstr.length(), 0);
 			}
 		}
+	} else if(str.find("cookie:") != str.npos) {
+		// cookie
+		string cookie = str.substr(7);
+		// redis query
+		string redisstr = "hget" + cookie + " name";
+		redisReply *r = (redisReply *)redisCommand(redis_target, redisstr.c_str());
+		string sendres;
+		if(r->str){
+			cout << "查询redis结果: " << r->str << endl;
+			sendres = r->str;
+		}else {
+			sendres = "NULL";
+		}
+		send(conn, sendres.c_str(), sendres.length()+1, 0);
 	}
 	
 	// 更新 conn
