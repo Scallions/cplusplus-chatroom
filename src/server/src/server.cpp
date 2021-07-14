@@ -62,10 +62,14 @@ void server::run() {
 	if(redis_target->err){
 		redisFree(redis_target);
 		cout << "连接redis失败" << endl;
+	}else{
+		cout << "连接redis成功" << endl;
 	}
 	// auth
 	redisReply *r = (redisReply *)redisCommand(redis_target, "AUTH %s", "gongli");
-	if(r->str != "OK"){
+	if(r->str){
+		cout << "验证redis成功" << endl;
+	}else{
 		redisFree(redis_target);
 		cout << "验证redis失败" << endl;
 	}
@@ -252,7 +256,7 @@ void server::HandleRequest(int conn, string str, tuple<bool, string, string, int
 		// cookie
 		string cookie = str.substr(7);
 		// redis query
-		string redisstr = "hget" + cookie + " name";
+		string redisstr = "hget " + cookie + " name";
 		redisReply *r = (redisReply *)redisCommand(redis_target, redisstr.c_str());
 		string sendres;
 		if(r->str){
